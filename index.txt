@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Ujian Pro (Node.js Version)</title>
+    
+    <script src="/assets/vendor/tailwind.js"></script> <script src="/assets/vendor/vue.global.prod.min.js"></script>
+    <script src="/assets/vendor/mammoth.browser.min.js"></script>
+    <link href="/assets/vendor/fontawesome/css/all.min.css" rel="stylesheet">
+    <script src="/assets/vendor/xlsx.full.min.js"></script>
+    <script src="/assets/vendor/sweetalert2.all.min.js"></script>
+
+    <style>
+        [v-cloak] { display: none; }
+        body { background-color: #f3f4f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        
+        /* Custom Scrollbar */
+        .scroller::-webkit-scrollbar { width: 8px; height: 8px; }
+        .scroller::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
+        .scroller::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .scroller::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+       /* Update class .rich-editor */
+        .rich-editor {
+            min-height: 100px; max-height: 300px; overflow-y: auto; overflow-x: hidden !important;
+            width: 100% !important; max-width: 100% !important; box-sizing: border-box; display: block;
+            white-space: pre-wrap !important; word-break: break-all !important; overflow-wrap: break-word !important; 
+            border: 1px solid #d1d5db; border-radius: 0.375rem; padding: 0.75rem; background-color: white;
+            line-height: 1.6; outline: none;
+        }
+
+        .rich-editor img { max-width: 100% !important; height: auto; }
+        .rich-editor:focus { outline: 2px solid #3b82f6; border-color: transparent; }
+        .rich-editor:empty::before { content: "\200b"; }
+        
+        .exam-content img, .rich-editor img {
+            max-width: 100%; height: auto; border-radius: 4px; float: left; 
+            margin-right: 15px; margin-bottom: 5px; margin-top: 5px; border: 1px solid #e5e7eb;
+        }
+        .exam-content::after, .rich-editor::after { content: ""; clear: both; display: table; }
+
+        .fade-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .kecermatan-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.5rem; }
+        .kecermatan-box { border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 0.5rem; text-align: center; background: white; }
+        .kecermatan-char { font-size: 1.5rem; font-weight: bold; color: #1e293b; }
+        .kecermatan-label { font-size: 0.75rem; color: #64748b; font-weight: bold; border-top: 1px solid #f1f5f9; margin-top: 4px; padding-top: 2px; }
+
+        /* CHART CSS */
+        .chart-wrapper { 
+            position: relative; width: 100%; height: 420px;
+            background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; 
+            padding: 15px; box-sizing: border-box; overflow: visible; z-index: 10;
+        }
+        .chart-svg { width: 100%; height: 100%; overflow: visible; }
+        
+        .grid-line { stroke: #f1f5f9; stroke-width: 1; }
+        .axis-text { font-size: 10px; fill: #94a3b8; font-weight: 600; }
+        .bar-correct { fill: #22c55e; transition: height 0.3s; }
+        .bar-wrong { fill: #ef4444; transition: height 0.3s; }
+        .line-answered { fill: none; stroke: #3b82f6; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        .dot-answered { fill: #fff; stroke: #3b82f6; stroke-width: 2; }
+        .hit-area { fill: transparent; cursor: pointer; }
+        .tooltip-box { pointer-events: none; opacity: 0; transition: opacity 0.15s ease; }
+        .bar-group:hover .tooltip-box { opacity: 1; }
+
+        /* Editor Toolbar */
+        .editor-wrapper { width: 100%; min-width: 0; }
+        .editor-toolbar {
+            background: #f1f5f9; padding: 8px; border-bottom: 1px solid #cbd5e1;
+            display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+        }
+        .editor-toolbar button, .editor-toolbar select {
+            background: white; border: 1px solid #cbd5e1; border-radius: 4px;
+            padding: 4px 8px; font-size: 11px; cursor: pointer; font-weight: bold; color: #475569;
+        }
+        .editor-toolbar button:hover { background: #e2e8f0; color: #1e293b; }
+        .editor-toolbar .separator { width: 1px; height: 20px; background: #cbd5e1; margin: 0 4px; }
+        .rich-editor img { cursor: pointer; transition: all 0.2s; border: 2px solid transparent; }
+        .rich-editor img:hover, .rich-editor img.active-img { border: 2px dashed #3b82f6; resize: both; }
+        
+        @media print { body { display: none !important; } }
+        .user-secure { -webkit-user-select: none; user-select: none; }
+    </style>
+</head>
+<body class="text-slate-800 bg-gray-100 min-h-screen flex flex-col">
+
+<div id="loading" class="fixed inset-0 bg-white flex items-center justify-center z-[100]">
+    <div class="text-center animate-bounce"><i class="fas fa-circle-notch fa-spin text-4xl text-blue-600"></i><p class="mt-4 font-bold text-gray-600">Memuat Sistem...</p></div>
+</div>
+
+<div id="app" v-cloak class="flex flex-col flex-grow h-screen overflow-hidden">
+
+    <div v-if="!isLoggedIn" class="fixed inset-0 bg-gradient-to-br from-slate-800 to-gray-900 flex items-center justify-center px-4 fade-in z-50">
+        <div class="bg-white p-10 rounded-2xl shadow-2xl w-full max-w-md border-t-4 border-blue-500">
+            <div class="text-center mb-10">
+                <i class="fas fa-graduation-cap text-6xl text-blue-600 mb-4 drop-shadow-sm"></i>
+                <h1 class="text-3xl font-extrabold text-gray-800 tracking-tight">SISTEM UJIAN PRO</h1>
+                <p class="text-sm text-gray-500 mt-2 font-medium">Node.js Edition</p>
+            </div>
+            <div class="space-y-6">
+                <div><label class="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1">Username / Email</label><input v-model="loginForm.user" @keyup.enter="handleLogin" type="text" class="w-full border px-4 py-3 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition" placeholder="Masukkan ID Pengguna"></div>
+                <div><label class="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1">Password</label><input v-model="loginForm.pass" @keyup.enter="handleLogin" type="password" class="w-full border px-4 py-3 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition" placeholder="Kata Sandi"></div>
+                <button @click="handleLogin" class="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg hover:shadow-xl transition transform active:scale-95">MASUK SISTEM</button>
+            </div>
+            <div class="mt-8 text-center text-xs text-gray-400 bg-gray-50 p-2 rounded">Powered by Node.js & Express</div>
+        </div>
+    </div>
+
+    <div v-if="isLoggedIn" class="flex flex-col h-full">
+         <nav v-if="currentRole === 'admin'" class="bg-slate-900 text-white p-4 shadow-md sticky top-0 z-40 shrink-0 border-b border-slate-700">
+            <div class="container-fluid px-6 flex justify-between items-center">
+                <h1 class="text-lg font-bold tracking-wider flex items-center text-blue-400"><i class="fas fa-user-shield mr-3 text-xl"></i> PANEL ADMIN</h1>
+                <button @click="handleLogout" class="text-xs bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-bold">Keluar</button>
+            </div>
+        </nav>
+        
+        <nav v-if="currentRole === 'peserta'" class="bg-blue-600 text-white p-4 shadow-lg sticky top-0 z-40 shrink-0">
+             <div class="container mx-auto max-w-6xl flex justify-between items-center">
+                <h1 class="text-xl font-extrabold tracking-wide flex items-center"><i class="fas fa-graduation-cap mr-2"></i>CIBN</h1>
+                <div class="flex items-center space-x-4">
+                    <div class="text-right"><div class="text-sm font-bold">{{ currentUser.username }}</div></div>
+                    <button @click="handleLogout" class="text-xs bg-white text-blue-600 px-4 py-2 rounded-lg font-bold">Keluar</button>
+                </div>
+            </div>
+        </nav>
+
+        <main class="flex-grow overflow-hidden relative p-4 lg:p-6 bg-gray-100">
+            <div class="text-center p-10" v-if="false">UI AREA - Silakan Replace bagian ini dengan HTML body dari main.html asli jika belum tampil</div>           
+        </main>
+    </div>
+
+</div>
+
+<script>
+const { createApp, ref, computed, reactive, onMounted, nextTick } = Vue;
+
+// --- FUNGSI BANTUAN FETCH AMAN (NODE.JS READY) ---
+const secureFetch = async (url, options = {}) => {
+    const token = localStorage.getItem('ujian_token');
+    
+    // Default Header JSON, KECUALI jika mengirim FormData (Upload Image)
+    const defaultHeaders = {};
+    if (!(options.body instanceof FormData)) {
+        defaultHeaders['Content-Type'] = 'application/json';
+    }
+
+    const headers = { ...defaultHeaders, ...options.headers };
+
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+
+    try {
+        const response = await fetch(url, { ...options, headers });
+        
+        if (response.status === 401) {
+            console.error("Sesi habis atau tidak valid");
+            localStorage.removeItem('ujian_token'); 
+            localStorage.removeItem('ujian_user');
+            if(!window.location.pathname.includes('login')) window.location.reload();
+            throw new Error("Unauthorized");
+        }
+        
+        return await response.json();
+    } catch (e) {
+        console.error("Fetch Error:", e);
+        // Swal.fire('Error', 'Gagal menghubungi server.', 'error');
+        return { status: 'error', message: e.message };
+    }
+};
+
+const app = createApp({
+    setup() {
+        // --- REACTIVE STATE DECLARATIONS ---
+        const isLoggedIn = ref(false);
+        const currentUser = ref({ id: '', username: '', role: '', groupId: null });
+        const currentRole = ref('admin'); 
+        const accounts = ref([]);
+        const loginForm = reactive({ user: '', pass: '' });
+        
+        // Data Global
+        const groups = ref([]);
+        const subTests = ref([]);
+        const modules = ref([]);
+        const results = ref([]);
+        const examPackages = ref([]); 
+        const userGroups = ref([]);
+
+        // Admin Tabs & State
+        const adminTab = ref('sub');
+        const newGroup = reactive({ name: '', type: 'normal' });
+        const editingGroupId = ref(null);
+        const selectedGroup = ref(null);
+        const newQuestion = reactive({ text: '', explanation: '', options: [{text:'', isCorrect:false, weight:0}, {text:'', isCorrect:false, weight:0}] });
+        const isEditing = ref(false);
+        const editingIndex = ref(-1);
+        const filterDate = reactive({ start: '', end: '' });
+
+        // Subtest State
+        const isEditingSub = ref(false);
+        const editingSubId = ref(null);
+        const newSub = reactive({ 
+            nameInternal: '', nameDisplay: '', duration: 60, navType: 'flexible', type: 'normal', 
+            selectedQuestions: [], columnsData: [], questions: [], internalGroups: []
+        });        
+        
+        // ... (Variabel state lain dari main.html asli Anda tetap diperlukan di sini) ...
+        // Agar tidak error, saya deklarasikan variabel penting yang sering dipakai
+        const tempGroupName = ref('');
+        const activeInternalGroupIdx = ref(-1);
+        const isEditingQ = ref(false);
+        const editingQIdx = ref(-1);
+        const tempQContent = ref('');
+        const tempOptions = ref([{text:'', isCorrect:false, weight:0}, {text:'', isCorrect:false, weight:0}]);
+        const tempExplanation = ref('');
+        const editingQSourceGroupIdx = ref(-2);
+        const activeMissingCol = ref(1);
+        const tempMissingInputs = reactive(['','','','','']);
+        const genCount = ref(20);
+        const isEditingModule = ref(false);
+        const editingModuleId = ref(null);
+        const newModule = reactive({ nameInternal: '', nameDisplay: '', passingGrade: 0, subIds: [], subWeights: {} });
+        const isEditingPackage = ref(false);
+        const editingPackageId = ref(null);
+        const newPackage = reactive({ name: '', moduleIds: [], targetType: 'group', targetId: '', selectedUsers: [] });
+        const isEditingAccount = ref(false);
+        const editingAccountId = ref(null);
+        const newAccount = reactive({ username: '', email: '', password: '', role: 'peserta', groupId: '', status: 'active' });
+        const newUserGroup = reactive({ name: '' });
+        const examState = ref('selection');
+        const pesertaTab = ref('ujian');
+        const availableExams = ref([]);
+        const activeExam = reactive({ moduleName: '', subIds: [], currentSubIndex: 0, currentSub: null, questions: [], qIndex: 0, answers: {}, flags: {}, currentCol: 1, colRefInput: [], waitingNextCol: false, resultsBuffer: [], startTime: null, packageId: null, currentQuestion: null, colResults: [], violationCount: 0 });
+        const timer = ref(0);
+        let timerInterval = null;
+        const finishedResult = ref(null);
+        const showResultModal = ref(false);
+        const selectedResult = ref(null);
+        const activeImg = ref(null);
+
+        // --- AUTH FUNCTIONS (MODIFIED FOR NODE.JS) ---
+        const handleLogin = () => {
+            Swal.fire({
+                title: 'Memproses...', text: 'Mohon tunggu', allowOutsideClick: false,
+                showConfirmButton: false, willOpen: () => { Swal.showLoading() }
+            });
+
+            // PERUBAHAN 1: Endpoint Node.js
+            fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user: loginForm.user, pass: loginForm.pass })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    Swal.close(); 
+                    const user = data.data;
+                    if(user.token) localStorage.setItem('ujian_token', user.token);
+                    localStorage.setItem('ujian_user', JSON.stringify(user));
+                    
+                    isLoggedIn.value = true;
+                    currentUser.value = user;
+                    currentRole.value = user.role;
+                    loadData(); 
+                    Swal.fire({ icon: 'success', title: 'Login Berhasil', toast: true, position: 'bottom-end', timer: 2000, showConfirmButton: false });
+                } else {
+                    Swal.fire({ icon: 'error', title: 'Login Gagal', text: data.message });
+                }
+            })
+            .catch(err => {
+                Swal.fire({ icon: 'error', title: 'Error', text: 'Koneksi Server Gagal' });
+            });
+        };
+
+        const handleLogout = () => {
+            Swal.fire({
+                title: 'Keluar?', icon: 'warning', showCancelButton: true, confirmButtonText: 'Ya', confirmButtonColor: '#d33'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    isLoggedIn.value = false; currentUser.value={}; 
+                    localStorage.removeItem('ujian_user'); localStorage.removeItem('ujian_token');
+                    window.location.reload(); 
+                }
+            });
+        };
+
+        // --- DATA LOADING (MODIFIED FOR NODE.JS) ---
+        const loadData = () => {
+            const loadingEl = document.getElementById('loading');
+            if(loadingEl) loadingEl.style.display = 'flex';
+            
+            // PERUBAHAN 2: Endpoint Route
+            const actionUrl = currentRole.value === 'peserta' ? '/api/user/dashboard' : '/api/admin/load_all';
+
+            secureFetch(actionUrl).then(response => {
+                if(response.status === 'success') {
+                    const data = response.data;
+                    if (currentRole.value === 'peserta') {
+                        availableExams.value = data.exams || [];
+                        if(data.user) currentUser.value = data.user;
+                        userGroups.value = data.userGroups || []; 
+                        subTests.value = data.subTests || []; 
+                        results.value = data.results || [];
+                    } else {
+                        groups.value = data.groups || [];
+                        subTests.value = data.subTests || [];
+                        modules.value = data.modules || [];
+                        results.value = data.results || [];
+                        examPackages.value = data.examPackages || [];
+                        userGroups.value = data.userGroups || [];
+                        accounts.value = data.accounts || [];
+                    }
+                }
+            }).finally(() => { setTimeout(() => { if(loadingEl) loadingEl.style.display = 'none'; }, 500); });
+        };
+
+        // --- ADMIN ACTIONS (MODIFIED FOR NODE.JS) ---
+        
+        // Simpan Subtes
+        const saveSubTest = () => { 
+            if(!newSub.nameInternal) return Swal.fire('Gagal', "Nama sub tes wajib diisi", 'warning'); 
+            
+            // Logic merapikan data sebelum kirim
+            let allQuestionsToSave = [];
+            if (newSub.navType !== 'missing_numbers') {
+                if (newSub.questions) allQuestionsToSave = [...allQuestionsToSave, ...newSub.questions.map(q => ({...q, sourceGroupName: ''}))];
+                if (newSub.internalGroups) newSub.internalGroups.forEach(grp => { if(grp.questions) allQuestionsToSave = [...allQuestionsToSave, ...grp.questions.map(q => ({...q, sourceGroupName: grp.name}))]; });
+            } else {
+                // Kecermatan
+                // Pastikan columnsData terisi
+                if (!newSub.columnsData || newSub.columnsData.length === 0) {
+                     // Auto-fill jika kosong (fallback)
+                     for(let i=0; i<10; i++) newSub.columnsData.push({id: i+1, inputs: ['','','','','']});
+                }
+            }
+            newSub.selectedQuestions = newSub.navType === 'missing_numbers' ? newSub.selectedQuestions : allQuestionsToSave;
+
+            const subData = { id: isEditingSub.value ? editingSubId.value : generateId(), ...newSub }; 
+            
+            const loadingEl = document.getElementById('loading'); if(loadingEl) loadingEl.style.display = 'flex';
+
+            // PERUBAHAN 3: Endpoint Save Subtest
+            secureFetch('/api/admin/save_subtest', {
+                method: 'POST',
+                body: JSON.stringify({ data: subData })
+            }).then(data => {
+                if(data.status === 'success') {
+                    if(isEditingSub.value) { 
+                        const idx = subTests.value.findIndex(s=>s.id===editingSubId.value); 
+                        if(idx !== -1) subTests.value[idx] = subData; 
+                    } else { subTests.value.push(subData); }
+                    Swal.fire('Sukses', "Sub Tes Berhasil Disimpan", 'success');
+                    cancelEditSub(); 
+                } else Swal.fire('Gagal', data.message, 'error');
+            }).finally(() => { if(loadingEl) loadingEl.style.display = 'none'; });
+        };
+
+        // Simpan Data Generik (Akun, Modul, Paket)
+        const saveData = (key, value) => {
+            // PERUBAHAN 4: Endpoint Generic
+            secureFetch('/api/admin/save_key', {
+                method: 'POST',
+                body: JSON.stringify({ key: key, value: value })
+            }).then(d => { if(d.status!=='success') console.error(d.message); });
+        };
+
+        // Upload Gambar
+        const triggerUpload = (targetId) => {
+            const input = document.createElement('input');
+            input.type = 'file'; input.accept = 'image/*';
+            input.onchange = e => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const formData = new FormData();
+                formData.append('file', file);
+
+                // PERUBAHAN 5: Endpoint Upload (SecureFetch auto handles headers for FormData in my helper above? No, need check)
+                // My secureFetch logic above excludes Content-Type for FormData, so it's safe.
+                secureFetch('/api/admin/upload_image', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(data => {
+                    if(data.status === 'success') {
+                        const imgHtml = `<img src="${data.url}" style="max-width: 100%; display: block; margin: 10px auto; border-radius: 5px;">`;
+                        const el = document.getElementById(targetId);
+                        if(el) { el.focus(); document.execCommand('insertHTML', false, imgHtml); el.dispatchEvent(new Event('input')); }
+                    } else alert("Upload Gagal");
+                });
+            };
+            input.click();
+        };
+
+        // --- HELPER LAINNYA ---
+        const generateId = () => { return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)); };
+        const formatDateTime = (ts) => ts ? new Date(ts).toLocaleString() : '-';
+        
+        // --- PESERTA: SUBMIT EXAM ---
+        const finishSubTest = (manual) => {
+            // (Logika hitung nilai sama seperti sebelumnya...)
+            // ... (Cut logic perhitungan skor agar pendek, asumsikan ada di fungsi aslinya) ...
+            
+            // SIMULASI SAVE RESULT:
+            const executeFinishProcess = () => {
+                // ... logic hitung ...
+                // Anggap `res` adalah object hasil akhir
+                const res = { 
+                    id: generateId(), 
+                    participantId: currentUser.value.id, 
+                    moduleName: activeExam.moduleName, 
+                    endTime: Date.now(), 
+                    totalScore: 100, // Dummy score, realnya hitung
+                    subResults: [] 
+                };
+
+                // PERUBAHAN 6: Submit Exam Endpoint
+                secureFetch('/api/user/submit_exam', {
+                    method: 'POST',
+                    body: JSON.stringify({ result: res })
+                }).then(d => {
+                     if(d.status === 'success') console.log("Hasil tersimpan");
+                     else console.error("Gagal simpan");
+                });
+                
+                examState.value = 'finished';
+            };
+            executeFinishProcess();
+        };
+
+        // --- RESTORE FUNCTIONS (MENCEGAH ERROR VUE) ---
+        // Karena kode UI di main.html memanggil banyak fungsi, kita harus mendefinisikan dummy/real functionnya
+        // agar Vue tidak crash saat render.
+        const editSub = (sub) => { /* Logic Copy Object */ Object.assign(newSub, JSON.parse(JSON.stringify(sub))); isEditingSub.value = true; editingSubId.value = sub.id; };
+        const cancelEditSub = () => { isEditingSub.value = false; /* Reset newSub values */ };
+        const deleteSub = (id) => { if(confirm("Hapus?")) { subTests.value = subTests.value.filter(s=>s.id!==id); saveData('subTests', subTests.value); } };
+        // ... Dan seterusnya untuk editModule, editPackage, dll.
+        // PENTING: Untuk production, Anda harus menyalin semua method dari main.html asli ke sini.
+        // Kode ini hanya kerangka integrasi Backend.
+
+        onMounted(() => {
+            setTimeout(() => { 
+                const loadingEl = document.getElementById('loading');
+                if(loadingEl) loadingEl.style.display = 'none'; 
+            }, 500);
+
+            const savedToken = localStorage.getItem('ujian_token');
+            if (savedToken) {
+                try {
+                    const user = JSON.parse(localStorage.getItem('ujian_user'));
+                    currentUser.value = user;
+                    currentRole.value = user.role;
+                    isLoggedIn.value = true;
+                    loadData(); 
+                } catch (e) { handleLogout(); }
+            }
+        });
+
+        return {
+            isLoggedIn, currentUser, currentRole, loginForm, handleLogin, handleLogout,
+            adminTab, groups, subTests, modules, results, examPackages, userGroups, accounts,
+            newSub, saveSubTest, editSub, cancelEditSub, deleteSub, triggerUpload,
+            // Return semua variabel yang dipakai di template HTML
+            isEditingSub, editingSubId, loading: ref(false)
+        };
+    }
+});
+app.mount('#app');
+</script>
+</body>
+</html>
